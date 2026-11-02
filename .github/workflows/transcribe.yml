@@ -1,0 +1,45 @@
+name: Transcribe Kino Audio
+on:
+  workflow_dispatch:
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Whisper
+        run: |
+          pip install faster-whisper --quiet
+          echo "Whisper installed at $(date)"
+      - name: Transcribe audio
+        run: |
+          echo "Starting transcription at $(date)"
+          START=$(date +%s)
+          python3 << 'PYEOF'
+          from faster_whisper import WhisperModel
+          import json
+          print("Loading model...")
+          model = WhisperModel("base", device="cpu", compute_type="int8")
+          print("Transcribing...")
+          segments, info = model.transcribe("audio/kino-2026-11-02-audio.mp3", beam_size=5)
+          results = []
+          for seg in segments:
+              results.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text.strip()})
+          with open("transcript.json", "w") as f:
+              json.dump(results, f, indent=1)
+          print(f"Done. {len(results)} segments.")
+          PYEOF
+          END=$(date +%s)
+          echo "TRANSCRIBE_TIME_SECONDS=$((END - START))"
+          echo "Finished at $(date)"
+          ls -lh transcript.json
+      - name: Upload transcript
+        uses: actions/upload-artifact@v4
+        with:
+          name: kino-transcript
+          path: transcript.json
