@@ -1,0 +1,40 @@
+name: Video Speed Test
+on:
+  workflow_dispatch:
+    inputs:
+      test_name:
+        description: 'Test identifier'
+        required: false
+        default: 'speed-test'
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg python3-pip
+          pip3 install faster-whisper --quiet
+          echo "=== Setup complete at $(date) ==="
+      - name: Generate test video
+        run: |
+          echo "=== Starting video generation at $(date) ==="
+          ffmpeg -y -f lavfi -i testsrc=duration=60:size=1280x720:rate=30 -f lavfi -i "sine=frequency=440:duration=60" -c:v libx264 -preset fast -c:a aac /tmp/test-input.mp4 2>&1 | tail -3
+          echo "=== Video generated at $(date) ==="
+          ls -lh /tmp/test-input.mp4
+      - name: Transcode test
+        run: |
+          echo "=== Starting transcode at $(date) ==="
+          START=$(date +%s)
+          ffmpeg -y -i /tmp/test-input.mp4 -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,drawtext=text='GOBLIN TEST':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2" -c:v libx264 -preset medium -c:a aac /tmp/test-output.mp4 2>&1 | tail -3
+          END=$(date +%s)
+          echo "=== Transcode finished at $(date) ==="
+          echo "TRANSCODE_TIME_SECONDS=$((END - START))"
+          ls -lh /tmp/test-output.mp4
+      - name: Report
+        run: |
+          echo "=========================================="
+          echo "SPEED TEST COMPLETE"
+          echo "Runner: $(nproc) CPUs, $(free -h | awk '/Mem:/{print $2}') RAM"
+          echo "=========================================="
