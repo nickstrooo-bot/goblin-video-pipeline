@@ -18,6 +18,9 @@ jobs:
           echo "Whisper installed at $(date)"
       - name: Transcribe audio
         run: |
+          echo "Reassembling audio chunks at $(date)"
+          cat audio/chunk_*.mp3 > /tmp/full-audio.mp3
+          ls -lh /tmp/full-audio.mp3
           echo "Starting transcription at $(date)"
           START=$(date +%s)
           python3 << 'PYEOF'
@@ -26,7 +29,7 @@ jobs:
           print("Loading model...")
           model = WhisperModel("base", device="cpu", compute_type="int8")
           print("Transcribing...")
-          segments, info = model.transcribe("audio/kino-2026-11-02-audio.mp3", beam_size=5)
+          segments, info = model.transcribe("/tmp/full-audio.mp3", beam_size=5)
           results = []
           for seg in segments:
               results.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text.strip()})
