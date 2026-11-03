@@ -81,7 +81,7 @@ jobs:
 
           # Go to upload page
           print("Navigating to upload page...")
-          page.goto('https://www.tiktok.com/tiktokstudio/upload')
+          page.goto('https://www.tiktok.com/upload')
           time.sleep(10)
           page.screenshot(path='/tmp/step5-upload-page.png')
           print(f"Upload page - Title: {page.title()}, URL: {page.url}")
