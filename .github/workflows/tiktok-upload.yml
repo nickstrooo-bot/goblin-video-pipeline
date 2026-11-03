@@ -1,0 +1,89 @@
+name: TikTok Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'URL of video to upload'
+        required: true
+      caption:
+        description: 'Video caption'
+        required: true
+  schedule:
+    - cron: '0 14 * * *'
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          playwright install chromium
+          sudo apt-get update && sudo apt-get install -y xvfb
+      
+      - name: Download video
+        run: |
+          curl -L -o /tmp/video.mp4 "${{ github.event.inputs.video_url }}"
+          ls -lh /tmp/video.mp4
+      
+      - name: Upload to TikTok
+        env:
+          TIKTOK_USERNAME: ${{ secrets.TIKTOK_USERNAME }}
+          TIKTOK_PASSWORD: ${{ secrets.TIKTOK_PASSWORD }}
+          VIDEO_CAPTION: ${{ github.event.inputs.caption }}
+        run: |
+          xvfb-run python - << 'PYEOF'
+          from playwright.sync_api import sync_playwright
+          import time, os
+          
+          pw = sync_playwright().start()
+          browser = pw.chromium.launch_persistent_context(
+              user_data_dir='/tmp/tiktok-profile',
+              headless=False,
+              args=['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+          )
+          page = browser.pages[0] if browser.pages else browser.new_page()
+          
+          # Login
+          page.goto('https://www.tiktok.com/login/phone-or-email/email')
+          time.sleep(5)
+          page.fill('input[name="username"]', os.environ['TIKTOK_USERNAME'])
+          time.sleep(1)
+          page.fill('input[type="password"]', os.environ['TIKTOK_PASSWORD'])
+          time.sleep(1)
+          page.click('button[type="submit"]')
+          time.sleep(10)
+          
+          # Upload
+          page.goto('https://www.tiktok.com/tiktokstudio/upload')
+          time.sleep(5)
+          # File input for video
+          page.set_input_files('input[type="file"]', '/tmp/video.mp4')
+          time.sleep(10)
+          # Caption
+          caption = os.environ.get('VIDEO_CAPTION', '')
+          if caption:
+              page.fill('[data-testid="caption"]', caption)
+              time.sleep(2)
+          
+          page.screenshot(path='/tmp/tiktok-ready.png')
+          print("Upload prepared. Screenshot saved.")
+          print("Title:", page.title())
+          
+          browser.close()
+          pw.stop()
+          PYEOF
+      
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiktok-screenshot
+          path: /tmp/tiktok-ready.png
