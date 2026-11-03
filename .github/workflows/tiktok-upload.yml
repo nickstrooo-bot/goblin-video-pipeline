@@ -17,23 +17,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
+
       - name: Install dependencies
         run: |
           pip install playwright
           playwright install chromium
           sudo apt-get update && sudo apt-get install -y xvfb
-      
+
       - name: Download video
         run: |
           curl -L -o /tmp/video.mp4 "${{ github.event.inputs.video_url }}"
           ls -lh /tmp/video.mp4
-      
+
       - name: Upload to TikTok
         env:
           TIKTOK_USERNAME: ${{ secrets.TIKTOK_USERNAME }}
@@ -43,7 +43,7 @@ jobs:
           xvfb-run python - << 'PYEOF'
           from playwright.sync_api import sync_playwright
           import time, os
-          
+
           pw = sync_playwright().start()
           browser = pw.chromium.launch_persistent_context(
               user_data_dir='/tmp/tiktok-profile',
@@ -51,39 +51,93 @@ jobs:
               args=['--no-sandbox', '--disable-blink-features=AutomationControlled'],
           )
           page = browser.pages[0] if browser.pages else browser.new_page()
-          
+
           # Login
+          print("Navigating to login...")
           page.goto('https://www.tiktok.com/login/phone-or-email/email')
-          time.sleep(5)
-          page.fill('input[name="username"]', os.environ['TIKTOK_USERNAME'])
-          time.sleep(1)
-          page.fill('input[type="password"]', os.environ['TIKTOK_PASSWORD'])
-          time.sleep(1)
-          page.click('button[type="submit"]')
-          time.sleep(10)
-          
-          # Upload
+          time.sleep(8)
+          page.screenshot(path='/tmp/step1-login-page.png')
+          print(f"Login page title: {page.title()}")
+
+          try:
+              page.fill('input[name="username"]', os.environ['TIKTOK_USERNAME'])
+              time.sleep(2)
+              page.fill('input[type="password"]', os.environ['TIKTOK_PASSWORD'])
+              time.sleep(2)
+              page.screenshot(path='/tmp/step2-filled.png')
+              page.click('button[type="submit"]')
+              time.sleep(12)
+          except Exception as e:
+              print(f"Login fill error: {e}")
+
+          page.screenshot(path='/tmp/step3-after-login.png')
+          print(f"After login - Title: {page.title()}, URL: {page.url}")
+
+          # Check if logged in by going to profile
+          page.goto('https://www.tiktok.com/@nickstrongarone')
+          time.sleep(8)
+          page.screenshot(path='/tmp/step4-profile.png')
+          print(f"Profile page - Title: {page.title()}")
+
+          # Go to upload page
+          print("Navigating to upload page...")
           page.goto('https://www.tiktok.com/tiktokstudio/upload')
-          time.sleep(5)
-          # File input for video
-          page.set_input_files('input[type="file"]', '/tmp/video.mp4')
           time.sleep(10)
+          page.screenshot(path='/tmp/step5-upload-page.png')
+          print(f"Upload page - Title: {page.title()}, URL: {page.url}")
+
+          # Try multiple selectors for file input
+          uploaded = False
+          for selector in ['input[type="file"]', 'input[accept*="video"]', '[data-testid="upload-input"]']:
+              try:
+                  print(f"Trying selector: {selector}")
+                  page.wait_for_selector(selector, timeout=10000)
+                  page.set_input_files(selector, '/tmp/video.mp4')
+                  print(f"SUCCESS with selector: {selector}")
+                  uploaded = True
+                  break
+              except Exception as e:
+                  print(f"Selector {selector} failed: {str(e)[:200]}")
+
+          if not uploaded:
+              print("FAILED: Could not find file input. Page HTML snippet:")
+              html = page.content()
+              # Find upload-related elements
+              import re
+              for m in re.finditer(r'<[^>]*upload[^>]*>', html[:50000], re.IGNORECASE):
+                  print(m.group(0)[:200])
+              raise Exception("Upload input not found")
+
+          time.sleep(15)
+          page.screenshot(path='/tmp/step6-video-attached.png')
+
           # Caption
           caption = os.environ.get('VIDEO_CAPTION', '')
           if caption:
-              page.fill('[data-testid="caption"]', caption)
-              time.sleep(2)
-          
+              try:
+                  # TikTok's caption area is usually a contenteditable div
+                  page.fill('[data-testid="caption"]', caption)
+                  print("Caption set via data-testid")
+              except:
+                  try:
+                      page.click('[contenteditable="true"]')
+                      page.keyboard.type(caption)
+                      print("Caption set via contenteditable")
+                  except Exception as e:
+                      print(f"Caption failed: {e}")
+              time.sleep(3)
+
           page.screenshot(path='/tmp/tiktok-ready.png')
-          print("Upload prepared. Screenshot saved.")
-          print("Title:", page.title())
-          
+          print("Upload prepared. Screenshots saved.")
+          print(f"Final - Title: {page.title()}")
+
           browser.close()
           pw.stop()
           PYEOF
-      
-      - name: Upload screenshot
+
+      - name: Upload debug screenshots
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tiktok-screenshot
-          path: /tmp/tiktok-ready.png
+          name: tiktok-debug
+          path: /tmp/step*.png
